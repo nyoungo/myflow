@@ -1,0 +1,71 @@
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: flow-approval
+  profiles:
+    active: dev
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+    default-property-inclusion: non_null
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 20MB
+  sql:
+    init:
+      encoding: UTF-8
+      continue-on-error: false
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    call-setters-on-nulls: true
+  global-config:
+    banner: false
+    db-config:
+      id-type: assign_id
+      table-underline: true
+
+shiro:
+  annotations:
+    # 本项目使用过滤器链鉴权，未使用 Shiro 注解；关闭可避免额外的 JDK 动态代理层
+    enabled: false
+
+flow:
+  token-store: memory
+  repeal-keep-record: true
+  demo:
+    enabled: true
+  bootstrap-admin:
+    enabled: true
+    username: admin
+    password: admin123
+  jwt:
+    secret: flow-approval-default-secret-please-change-in-production
+    expire-minutes: 720
+    header: Authorization
+    prefix: "Bearer "
+    query-param: token
+  security:
+    password-salt: flow-approval
+
+springfox:
+  documentation:
+    swagger-ui:
+      enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.joinsoft: INFO
+    org.springframework.jdbc.datasource.init: WARN

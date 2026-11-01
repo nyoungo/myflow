@@ -1,0 +1,41 @@
+spring:
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DB:flow_approval}?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root}
+    druid:
+      initial-size: 5
+      min-idle: 5
+      max-active: 30
+      max-wait: 60000
+      validation-query: SELECT 1
+      test-while-idle: true
+      filters: stat,wall
+  sql:
+    init:
+      mode: never
+  redis:
+    host: ${REDIS_HOST:127.0.0.1}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    database: ${REDIS_DB:0}
+    timeout: 3000ms
+
+flow:
+  token-store: redis
+  demo:
+    enabled: false
+  bootstrap-admin:
+    enabled: ${FLOW_BOOTSTRAP_ADMIN:true}
+    username: ${FLOW_ADMIN_USERNAME:admin}
+    password: ${FLOW_ADMIN_PASSWORD:}
+  jwt:
+    secret: ${FLOW_JWT_SECRET:please-change-this-secret-in-production}
+  security:
+    password-salt: ${FLOW_PASSWORD_SALT:flow-approval}
+
+logging:
+  file:
+    name: ./logs/flow-approval.log

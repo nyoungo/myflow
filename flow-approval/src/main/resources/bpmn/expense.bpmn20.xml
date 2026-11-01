@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+             targetNamespace="http://joinsoft.com/flow">
+  <process id="expense" name="费用报销" isExecutable="true">
+    <startEvent id="start" name="提交报销"/>
+    <userTask id="managerApprove" name="部门经理审批" candidateGroups="manager"/>
+    <exclusiveGateway id="amountGateway" name="金额判断" default="flow_low"/>
+    <userTask id="bossApprove" name="总经理审批" assignee="admin"/>
+    <userTask id="financeApprove" name="财务审批" assignee="finadmin"/>
+    <endEvent id="end" name="结束"/>
+    <sequenceFlow id="flow1" sourceRef="start" targetRef="managerApprove"/>
+    <sequenceFlow id="flow2" sourceRef="managerApprove" targetRef="amountGateway"/>
+    <sequenceFlow id="flow_high" name="大于1000" sourceRef="amountGateway" targetRef="bossApprove">
+      <conditionExpression xsi:type="tFormalExpression" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><![CDATA[${amount > 1000}]]></conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flow_low" name="否则" sourceRef="amountGateway" targetRef="financeApprove"/>
+    <sequenceFlow id="flow3" sourceRef="bossApprove" targetRef="financeApprove"/>
+    <sequenceFlow id="flow4" sourceRef="financeApprove" targetRef="end"/>
+  </process>
+  <bpmndi:BPMNDiagram id="diagram_expense">
+    <bpmndi:BPMNPlane id="plane_expense" bpmnElement="expense">
+      <bpmndi:BPMNShape id="shape_start" bpmnElement="start">
+        <dc:Bounds x="50" y="160" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_manager" bpmnElement="managerApprove">
+        <dc:Bounds x="130" y="138" width="140" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_gateway" bpmnElement="amountGateway">
+        <dc:Bounds x="315" y="148" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_boss" bpmnElement="bossApprove">
+        <dc:Bounds x="410" y="60" width="140" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_finance" bpmnElement="financeApprove">
+        <dc:Bounds x="410" y="210" width="140" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_end" bpmnElement="end">
+        <dc:Bounds x="610" y="160" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="edge_flow1" bpmnElement="flow1">
+        <di:waypoint x="86" y="178"/>
+        <di:waypoint x="130" y="178"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flow2" bpmnElement="flow2">
+        <di:waypoint x="270" y="178"/>
+        <di:waypoint x="315" y="173"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flow_high" bpmnElement="flow_high">
+        <di:waypoint x="340" y="148"/>
+        <di:waypoint x="410" y="100"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flow_low" bpmnElement="flow_low">
+        <di:waypoint x="340" y="198"/>
+        <di:waypoint x="410" y="250"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flow3" bpmnElement="flow3">
+        <di:waypoint x="480" y="140"/>
+        <di:waypoint x="480" y="210"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flow4" bpmnElement="flow4">
+        <di:waypoint x="550" y="250"/>
+        <di:waypoint x="610" y="178"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>

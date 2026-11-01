@@ -1,0 +1,35 @@
+spring:
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    driver-class-name: org.h2.Driver
+    url: jdbc:h2:file:./data/flow;MODE=MySQL;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE;NON_KEYWORDS=KEY,VALUE
+    username: sa
+    password: ""
+    druid:
+      initial-size: 2
+      min-idle: 2
+      max-active: 10
+      max-wait: 60000
+      validation-query: SELECT 1
+      test-while-idle: true
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/h2/schema.sql
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+      settings:
+        web-allow-others: false
+
+flow:
+  token-store: memory
+  demo:
+    enabled: true
+
+logging:
+  file:
+    name: ./logs/flow-approval.log
+  level:
+    com.joinsoft: DEBUG

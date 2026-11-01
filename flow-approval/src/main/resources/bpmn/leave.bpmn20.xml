@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+             targetNamespace="http://joinsoft.com/flow">
+  <process id="leave" name="请假审批" isExecutable="true">
+    <startEvent id="start" name="发起申请"/>
+    <userTask id="deptApprove" name="部门经理审批" assignee="manager">
+      <documentation>部门经理确认请假天数与工作交接</documentation>
+    </userTask>
+    <userTask id="hrApprove" name="人事审批" assignee="admin">
+      <extensionElements>
+        <flow:noticeStartUser xmlns:flow="http://joinsoft.com/flow">true</flow:noticeStartUser>
+      </extensionElements>
+    </userTask>
+    <endEvent id="end" name="结束"/>
+    <sequenceFlow id="flow1" sourceRef="start" targetRef="deptApprove"/>
+    <sequenceFlow id="flow2" sourceRef="deptApprove" targetRef="hrApprove"/>
+    <sequenceFlow id="flow3" sourceRef="hrApprove" targetRef="end"/>
+  </process>
+  <bpmndi:BPMNDiagram id="diagram_leave">
+    <bpmndi:BPMNPlane id="plane_leave" bpmnElement="leave">
+      <bpmndi:BPMNShape id="shape_start" bpmnElement="start">
+        <dc:Bounds x="60" y="130" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_dept" bpmnElement="deptApprove">
+        <dc:Bounds x="160" y="108" width="140" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_hr" bpmnElement="hrApprove">
+        <dc:Bounds x="360" y="108" width="140" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="shape_end" bpmnElement="end">
+        <dc:Bounds x="560" y="130" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="edge_flow1" bpmnElement="flow1">
+        <di:waypoint x="96" y="148"/>
+        <di:waypoint x="160" y="148"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flow2" bpmnElement="flow2">
+        <di:waypoint x="300" y="148"/>
+        <di:waypoint x="360" y="148"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="edge_flow3" bpmnElement="flow3">
+        <di:waypoint x="500" y="148"/>
+        <di:waypoint x="560" y="148"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>

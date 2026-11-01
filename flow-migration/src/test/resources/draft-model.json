@@ -1,0 +1,90 @@
+{
+  "resourceId": "canvas",
+  "properties": {
+    "process_id": "leaveJson",
+    "name": "JSON草稿流程",
+    "documentation": "由旧设计器 JSON 迁移",
+    "process_namespace": "http://www.activiti.org/test",
+    "process_executable": "Yes"
+  },
+  "stencil": {
+    "id": "BPMNDiagram"
+  },
+  "stencilset": {
+    "namespace": "http://b3mn.org/stencilset/bpmn2.0#"
+  },
+  "bounds": {
+    "upperLeft": {"x": 0, "y": 0},
+    "lowerRight": {"x": 1000, "y": 600}
+  },
+  "childShapes": [
+    {
+      "resourceId": "start",
+      "properties": {"overrideid": "start", "name": "开始"},
+      "stencil": {"id": "StartNoneEvent"},
+      "childShapes": [],
+      "outgoing": [{"resourceId": "flow1"}],
+      "bounds": {
+        "upperLeft": {"x": 100, "y": 100},
+        "lowerRight": {"x": 130, "y": 130}
+      }
+    },
+    {
+      "resourceId": "flow1",
+      "properties": {"overrideid": "flow1"},
+      "stencil": {"id": "SequenceFlow"},
+      "childShapes": [],
+      "outgoing": [],
+      "target": {"resourceId": "jsonApprove"},
+      "dockers": [{"x": 15, "y": 15}, {"x": 15, "y": 15}]
+    },
+    {
+      "resourceId": "jsonApprove",
+      "properties": {
+        "overrideid": "jsonApprove",
+        "name": "JSON审批",
+        "usertaskassignment": {
+          "assignment": {
+            "type": "static",
+            "assignee": "u2",
+            "candidateUsers": [{"value": "u3"}],
+            "candidateGroups": [{"value": "manager"}]
+          }
+        },
+        "userFilter": "deptLeader",
+        "approveButton": "true",
+        "approveButtonNames": "同意,驳回",
+        "autoPass": "true",
+        "noticeStartUser": "true",
+        "noticeApprovalUser": "false"
+      },
+      "stencil": {"id": "UserTask"},
+      "childShapes": [],
+      "outgoing": [{"resourceId": "flow2"}],
+      "bounds": {
+        "upperLeft": {"x": 200, "y": 90},
+        "lowerRight": {"x": 300, "y": 150}
+      }
+    },
+    {
+      "resourceId": "flow2",
+      "properties": {"overrideid": "flow2"},
+      "stencil": {"id": "SequenceFlow"},
+      "childShapes": [],
+      "outgoing": [],
+      "target": {"resourceId": "end"},
+      "dockers": [{"x": 15, "y": 15}, {"x": 15, "y": 15}]
+    },
+    {
+      "resourceId": "end",
+      "properties": {"overrideid": "end", "name": "结束"},
+      "stencil": {"id": "EndNoneEvent"},
+      "childShapes": [],
+      "outgoing": [],
+      "bounds": {
+        "upperLeft": {"x": 400, "y": 100},
+        "lowerRight": {"x": 430, "y": 130}
+      }
+    }
+  ]
+}

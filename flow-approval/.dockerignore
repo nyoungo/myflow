@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+.idea
+.vscode
+.opencode
+.tools
+.run
+data
+logs
+target
+ui/node_modules
+ui/dist
+docs
+*.log
+*.pid

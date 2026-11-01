@@ -1,0 +1,93 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: flow-approval-mysql
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-flow_root_2024}
+      MYSQL_DATABASE: flow_approval
+      MYSQL_USER: flow
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-flow_pass_2024}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./src/main/resources/db/mysql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks: [flow-net]
+
+  redis:
+    image: redis:7-alpine
+    container_name: flow-approval-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-flow_redis_2024}"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-flow_redis_2024}
+    networks: [flow-net]
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: flow-approval:1.0.0
+    container_name: flow-approval-app
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      SPRING_PROFILES_ACTIVE: prod
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DB: flow_approval
+      MYSQL_USER: flow
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-flow_pass_2024}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-flow_redis_2024}
+      FLOW_ADMIN_USERNAME: ${FLOW_ADMIN_USERNAME:-admin}
+      # 留空时 AdminBootstrap 生成随机初始密码并打印到日志
+      FLOW_ADMIN_PASSWORD: ${FLOW_ADMIN_PASSWORD:-}
+      FLOW_JWT_SECRET: ${FLOW_JWT_SECRET:-please-change-this-jwt-secret-in-production}
+      FLOW_PASSWORD_SALT: ${FLOW_PASSWORD_SALT:-flow-approval}
+      JAVA_OPTS: ${JAVA_OPTS:--Xms256m -Xmx512m -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      # 命名卷可继承镜像内 /app/logs 的属主，避免 Linux 下 bind mount 无写权限
+      - app-logs:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/ > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks: [flow-net]
+
+volumes:
+  mysql-data:
+  redis-data:
+  app-logs:
+
+networks:
+  flow-net:
+    driver: bridge
