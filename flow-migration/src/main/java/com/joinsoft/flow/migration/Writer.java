@@ -4,7 +4,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Timestamp;
-import java.sql.Types;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -35,7 +34,7 @@ public final class Writer implements AutoCloseable {
         });
         COLUMNS.put("flow_comment", new String[]{
                 "id", "inst_id", "task_id", "task_def_key", "task_name", "comment_type", "user_id", "user_name",
-                "message", "flow_state", "create_time"
+                "message", "flow_state", "tenant_id", "create_time"
         });
     }
 
@@ -72,6 +71,10 @@ public final class Writer implements AutoCloseable {
         }
         if (dryRun) {
             written++;
+            // dry-run 没有 flush，按批次滚动清理，避免大库下去重集合无限增长
+            if (written % batchSize == 0) {
+                seen.clear();
+            }
             return;
         }
         try {
@@ -106,6 +109,9 @@ public final class Writer implements AutoCloseable {
                 statement.executeBatch();
             }
             pending = 0;
+            // 本批已落库，后续同主键写入会先 DELETE 再 INSERT，不会触发主键冲突；
+            // 及时清空去重集合，避免百万级迁移时内存随行数线性增长
+            seen.clear();
         } catch (SQLException e) {
             throw new MigrationException("批量写入失败: " + e.getMessage(), e);
         }
@@ -195,7 +201,9 @@ public final class Writer implements AutoCloseable {
 
     private static void bind(PreparedStatement statement, int index, Object value) throws SQLException {
         if (value == null) {
-            statement.setNull(index, Types.VARCHAR);
+            // 用无类型 null：setNull(Types.VARCHAR) 在 PostgreSQL/瀚高上会让
+            // bigint/int 列的 NULL 参数被当成 varchar，触发类型不匹配错误
+            statement.setObject(index, null);
         } else if (value instanceof Timestamp) {
             statement.setTimestamp(index, (Timestamp) value);
         } else if (value instanceof byte[]) {

@@ -53,6 +53,7 @@ public final class CommentMigrator {
         long read = 0;
         long written = 0;
         long skipped = 0;
+        long skippedEvents = 0;
         String lastId = null;
         while (true) {
             List<CommentRow> rows = fetch(comment, task, lastId);
@@ -61,6 +62,13 @@ public final class CommentMigrator {
             }
             for (CommentRow row : rows) {
                 read++;
+                // Activiti 会把候选人的增删也写成 type=event 的评论（AddUserLink/DeleteGroupLink），
+                // 这些不是审批意见，旧系统查询也只取 TYPE_='comment'，这里直接跳过并汇总提示
+                if ("event".equalsIgnoreCase(row.type)) {
+                    skipped++;
+                    skippedEvents++;
+                    continue;
+                }
                 if (!Text.hasText(row.id) || !Text.hasText(row.instId)) {
                     skipped++;
                     ctx.report.warn("flow_comment", row.id, "缺少主键或实例ID", "跳过");
@@ -86,6 +94,9 @@ public final class CommentMigrator {
                 target.put("user_name", Text.cut(ctx.users.name(userId), 100));
                 target.put("message", Text.cut(Text.firstNonEmpty(row.message, row.fullMessage), 2000));
                 target.put("flow_state", Text.cut(row.flowState, 10));
+                // 旧意见表可能没有 TENANT_ID_，继承所属实例的租户，避免多租户下意见不可见
+                target.put("tenant_id", Text.cut(Text.firstNonEmpty(row.tenantId,
+                        ctx.instanceTenants.get(row.instId)), 64));
                 target.put("create_time", row.time == null ? new Timestamp(System.currentTimeMillis()) : row.time);
                 ctx.writer.write("flow_comment", target);
                 written++;
@@ -96,6 +107,10 @@ public final class CommentMigrator {
             }
         }
         ctx.report.stage("flow_comment", read, written, skipped);
+        if (skippedEvents > 0) {
+            ctx.report.warn("act_hi_comment", "", "跳过 Activiti 事件记录 " + skippedEvents + " 条",
+                    "AddUserLink/DeleteGroupLink 等候选人变更事件不是审批意见，旧系统列表同样只展示 TYPE_='comment'");
+        }
     }
 
     private List<CommentRow> fetch(Db.Table comment, Db.Table task, String lastId) {
@@ -110,12 +125,14 @@ public final class CommentMigrator {
                 .append(column("c", comment, "FULL_MSG_", "comment_full_message")).append(", ")
                 .append(column("c", comment, "TIME_", "comment_time")).append(", ")
                 .append(column("c", comment, "USER_ID_", "comment_user_id")).append(", ")
-                .append(column("c", comment, "FLOW_STATE_", "comment_flow_state"));
-        if (task != null && task.col("ID_", "ID") != null) {
+                .append(column("c", comment, "FLOW_STATE_", "comment_flow_state")).append(", ")
+                .append(column("c", comment, "TENANT_ID_", "comment_tenant_id"));
+        String commentTaskCol = comment.col("TASK_ID_");
+        if (task != null && task.col("ID_", "ID") != null && commentTaskCol != null) {
             sql.append(", ").append(column("h", task, "TASK_DEF_KEY_", "task_def_key")).append(", ")
                     .append(column("h", task, "NAME_", "task_name"));
             sql.append(" FROM ").append(comment.name).append(" c LEFT JOIN ").append(task.name)
-                    .append(" h ON h.").append(task.col("ID_", "ID")).append(" = c.").append(comment.col("TASK_ID_"));
+                    .append(" h ON h.").append(task.col("ID_", "ID")).append(" = c.").append(commentTaskCol);
         } else {
             sql.append(", NULL AS task_def_key, NULL AS task_name FROM ").append(comment.name).append(" c");
         }
@@ -145,6 +162,7 @@ public final class CommentMigrator {
                         row.time = Db.timestamp(rs, "comment_time");
                         row.userId = Db.str(rs, "comment_user_id");
                         row.flowState = Db.str(rs, "comment_flow_state");
+                        row.tenantId = Db.str(rs, "comment_tenant_id");
                         row.taskDefKey = Db.str(rs, "task_def_key");
                         row.taskName = Db.str(rs, "task_name");
                         rows.add(row);
@@ -204,6 +222,7 @@ public final class CommentMigrator {
         Timestamp time;
         String userId;
         String flowState;
+        String tenantId;
         String taskDefKey;
         String taskName;
     }

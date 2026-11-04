@@ -51,11 +51,27 @@ public final class Db implements AutoCloseable {
 
     public static Db open(String url, String user, String password, String driver, String dialectName,
                           String preferredSchema) {
+        // 未显式指定驱动时按 URL 预加载一次：驱动不在 classpath 时能给出
+        // 「缺哪个类」的明确提示，而不是等到 DriverManager 报 No suitable driver
+        String inferred = null;
         if (driver != null && !driver.trim().isEmpty()) {
             try {
                 Class.forName(driver.trim());
             } catch (ClassNotFoundException e) {
-                throw new IllegalArgumentException("找不到 JDBC 驱动: " + driver, e);
+                throw new IllegalArgumentException("找不到 JDBC 驱动: " + driver
+                        + "；请把驱动 jar 放到 classpath，或用 -cp \"flow-migration.jar;driver.jar\" 启动", e);
+            }
+        } else {
+            inferred = defaultDriver(url);
+            if (inferred != null) {
+                try {
+                    Class.forName(inferred);
+                } catch (ClassNotFoundException e) {
+                    // 交给下面的 DriverManager 统一报错，保留 inferred 用于提示
+                    inferred = inferred + "（不在 classpath）";
+                } catch (Throwable ignored) {
+                    // 某些驱动静态初始化依赖运行环境，忽略后由 DriverManager 处理
+                }
             }
         }
         Properties properties = new Properties();
@@ -81,8 +97,38 @@ public final class Db implements AutoCloseable {
             }
             return db;
         } catch (SQLException e) {
-            throw new MigrationException("连接数据库失败: " + url + " (" + e.getMessage() + ")", e);
+            String message = e.getMessage() == null ? "" : e.getMessage();
+            if (message.toLowerCase(Locale.ROOT).contains("no suitable driver")) {
+                throw new MigrationException("连接数据库失败: " + url + "\n"
+                        + "  找不到可用的 JDBC 驱动" + (inferred == null ? "" : "（" + inferred + "）") + "。\n"
+                        + "  - 确认使用完整包 flow-migration.jar（已内置 MySQL/PostgreSQL/瀚高驱动）；\n"
+                        + "  - 使用其他厂商驱动时，把驱动 jar 与 flow-migration.jar 一起放到 classpath：\n"
+                        + "    java -cp \"flow-migration.jar;your-driver.jar\" com.joinsoft.flow.migration.MigrationMain ...\n"
+                        + "  - 或用 --source-driver / --target-driver 显式指定驱动类。", e);
+            }
+            throw new MigrationException("连接数据库失败: " + url + " (" + message + ")", e);
         }
+    }
+
+    /** 按 JDBC URL 前缀推断驱动类，供缺驱动时给出可读提示。 */
+    static String defaultDriver(String url) {
+        String lower = url == null ? "" : url.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("jdbc:mysql:")) {
+            return "com.mysql.cj.jdbc.Driver";
+        }
+        if (lower.startsWith("jdbc:mariadb:")) {
+            return "org.mariadb.jdbc.Driver";
+        }
+        if (lower.startsWith("jdbc:postgresql:")) {
+            return "org.postgresql.Driver";
+        }
+        if (lower.startsWith("jdbc:highgo:")) {
+            return "com.highgo.jdbc.Driver";
+        }
+        if (lower.startsWith("jdbc:h2:")) {
+            return "org.h2.Driver";
+        }
+        return null;
     }
 
     /** 允许显式指定 schema（PostgreSQL/瀚高）或数据库（MySQL）。 */

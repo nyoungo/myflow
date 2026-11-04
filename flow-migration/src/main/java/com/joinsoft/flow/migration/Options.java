@@ -43,7 +43,10 @@ public final class Options {
     public String assigneeFormat = "auto";
     public String reportPath;
     public int maxWarnings = 2000;
+    /** 迁移产生告警时是否让进程以非 0 退出（便于 CI/脚本判定） */
+    public boolean failOnWarnings = false;
     public boolean help;
+    public boolean version;
 
     private final Map<String, String> raw = new LinkedHashMap<String, String>();
 
@@ -54,6 +57,10 @@ public final class Options {
             String arg = args[i];
             if ("-h".equals(arg) || "--help".equals(arg)) {
                 options.help = true;
+                continue;
+            }
+            if ("--version".equals(arg) || "-V".equals(arg)) {
+                options.version = true;
                 continue;
             }
             if (!arg.startsWith("--")) {
@@ -146,6 +153,7 @@ public final class Options {
         assigneeFormat = get("assignee-format", assigneeFormat);
         reportPath = get("report", reportPath);
         maxWarnings = getInt("max-warnings", maxWarnings);
+        failOnWarnings = getBoolean("fail-on-warnings", failOnWarnings);
     }
 
     private String get(String key, String defaultValue) {
@@ -206,6 +214,18 @@ public final class Options {
                 && !"id".equalsIgnoreCase(assigneeFormat)
                 && !"username".equalsIgnoreCase(assigneeFormat)) {
             throw new IllegalArgumentException("--assignee-format 只能是 auto / id / username");
+        }
+        if (maxWarnings < 0) {
+            throw new IllegalArgumentException("--max-warnings 不能为负数");
+        }
+        for (String item : tables.split(",")) {
+            String name = item.trim().toLowerCase(Locale.ROOT);
+            if (name.isEmpty()) {
+                continue;
+            }
+            if (!"def".equals(name) && !"inst".equals(name) && !"task".equals(name) && !"comment".equals(name)) {
+                throw new IllegalArgumentException("--tables 只支持 def/inst/task/comment，无法识别: " + item.trim());
+            }
         }
         if (!wants("def") && !wants("inst") && !wants("task") && !wants("comment")) {
             throw new IllegalArgumentException("--tables 至少要包含 def/inst/task/comment 之一");

@@ -84,6 +84,8 @@ CREATE INDEX IF NOT EXISTS idx_flow_task_inst ON flow_task (inst_id, status);
 
 CREATE INDEX IF NOT EXISTS idx_flow_task_assignee ON flow_task (assignee, status);
 
+CREATE INDEX IF NOT EXISTS idx_flow_task_done ON flow_task (assignee, status, end_time DESC);
+
 CREATE TABLE IF NOT EXISTS flow_comment (
     id            VARCHAR(64)   NOT NULL,
     inst_id       VARCHAR(64)   NOT NULL,
@@ -95,6 +97,7 @@ CREATE TABLE IF NOT EXISTS flow_comment (
     user_name     VARCHAR(100)  DEFAULT NULL,
     message       VARCHAR(2000) DEFAULT NULL,
     flow_state    VARCHAR(10)   DEFAULT NULL,
+    tenant_id     VARCHAR(64)   DEFAULT NULL,
     create_time   TIMESTAMP     DEFAULT NULL,
     PRIMARY KEY (id)
 );

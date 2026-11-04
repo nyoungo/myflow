@@ -74,7 +74,8 @@ class MigrationH2Test {
         assertTrue(dryOutput.contains("dry-run"), dryOutput);
 
         // 2. 正式执行
-        runMigration(sourceUrl, targetUrl, "execute", false);
+        String execOutput = runMigration(sourceUrl, targetUrl, "execute", false);
+        assertTrue(execOutput.contains("跳过 Activiti 事件记录 1 条"), execOutput);
         assertEquals(2, count(target, "flow_def"));
         assertEquals(4, count(target, "flow_inst"));
         assertEquals(6, count(target, "flow_task"));
@@ -202,6 +203,25 @@ class MigrationH2Test {
         source.close();
     }
 
+    @Test
+    void failOnWarningsReturnsExitCode4() throws Exception {
+        String sourceUrl = "jdbc:h2:mem:act5;MODE=MySQL;DB_CLOSE_DELAY=-1";
+        String targetUrl = "jdbc:h2:mem:flow5;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
+        Connection source = DriverManager.getConnection(sourceUrl, "sa", "");
+        createActivitiSchema(source);
+        seed(source);
+
+        // 种子数据里有 serializable 变量，必然产生告警
+        Run run = runRaw(sourceUrl, targetUrl, "dry-run", false, null, true);
+        assertEquals(4, run.code, "有告警且开启 --fail-on-warnings 时应返回 4，输出:\n" + run.output);
+        assertTrue(run.output.contains("告警"), run.output);
+
+        Run lenient = runRaw(sourceUrl, targetUrl, "dry-run", false, null, false);
+        assertEquals(0, lenient.code, "未开启 --fail-on-warnings 时仍返回 0，输出:\n" + lenient.output);
+
+        source.close();
+    }
+
     // ------------------------------------------------------------------
     // 断言
     // ------------------------------------------------------------------
@@ -285,7 +305,8 @@ class MigrationH2Test {
     }
 
     private static void assertOrphanInstance(Connection target) throws SQLException {
-        assertEquals("4", text(target, "SELECT state FROM flow_inst WHERE id = 'p3'"));
+        assertEquals("3", text(target, "SELECT state FROM flow_inst WHERE id = 'p3'"),
+                "旧库「撤销」在新引擎按已终止迁移（新引擎撤销是物理删除，没有 state=4）");
         assertEquals("u3", text(target, "SELECT start_user_id FROM flow_inst WHERE id = 'p3'"));
         assertEquals("王五", text(target, "SELECT start_user_name FROM flow_inst WHERE id = 'p3'"));
         assertEquals("leave.BIZ-3", text(target, "SELECT business_key FROM flow_inst WHERE id = 'p3'"));
@@ -315,7 +336,7 @@ class MigrationH2Test {
     }
 
     private static void assertComments(Connection target) throws SQLException {
-        String sql = "SELECT comment_type, task_def_key, task_name, user_id, user_name, message, flow_state "
+        String sql = "SELECT comment_type, task_def_key, task_name, user_id, user_name, message, flow_state, tenant_id "
                 + "FROM flow_comment WHERE id = 'c1'";
         PreparedStatement statement = target.prepareStatement(sql);
         try {
@@ -328,12 +349,16 @@ class MigrationH2Test {
             assertEquals("李四", rs.getString("user_name"));
             assertEquals("同意", rs.getString("message"));
             assertEquals("1", rs.getString("flow_state"));
+            assertEquals("t1", rs.getString("tenant_id"),
+                    "旧意见表没有 TENANT_ID_ 时应继承实例租户");
         } finally {
             statement.close();
         }
-        assertEquals("system", text(target, "SELECT comment_type FROM flow_comment WHERE id = 'c2'"));
-        assertEquals("linked", text(target, "SELECT message FROM flow_comment WHERE id = 'c2'"));
-        assertEquals("hrApprove", text(target, "SELECT task_def_key FROM flow_comment WHERE id = 'c2'"));
+        assertEquals("system", text(target, "SELECT comment_type FROM flow_comment WHERE id = 'c3'"));
+        assertNull(text(target, "SELECT message FROM flow_comment WHERE id = 'c3'"));
+        assertEquals("hrApprove", text(target, "SELECT task_def_key FROM flow_comment WHERE id = 'c3'"));
+        assertNull(text(target, "SELECT comment_type FROM flow_comment WHERE id = 'c2'"),
+                "Activiti 的 AddUserLink/DeleteGroupLink 事件不是审批意见，不应迁移");
     }
 
     // ------------------------------------------------------------------
@@ -442,6 +467,11 @@ class MigrationH2Test {
                 "ID_,TYPE_,TIME_,USER_ID_,TASK_ID_,PROC_INST_ID_,ACTION_,MESSAGE_,FULL_MSG_,FLOW_STATE_",
                 "c2", "event", Timestamp.valueOf("2024-01-01 11:01:00"), "u1", "t2", "p1",
                 "AddUserLink", null, "linked", null);
+        // c3：非 event 类型的系统动作，迁移后 comment_type=system
+        insert(c, "ACT_HI_COMMENT",
+                "ID_,TYPE_,TIME_,USER_ID_,TASK_ID_,PROC_INST_ID_,ACTION_,MESSAGE_,FULL_MSG_,FLOW_STATE_",
+                "c3", "comment", Timestamp.valueOf("2024-01-01 11:02:00"), "u1", "t2", "p1",
+                "DeleteProcessInstance", null, null, null);
 
         // p2：已完成实例（有业务数据、无运行中任务）
         Timestamp end = Timestamp.valueOf("2024-01-02 18:00:00");
@@ -568,6 +598,13 @@ class MigrationH2Test {
 
     private static String runMigration(String sourceUrl, String targetUrl, String mode, boolean truncate,
                                        String targetDialect) {
+        Run run = runRaw(sourceUrl, targetUrl, mode, truncate, targetDialect, false);
+        assertEquals(0, run.code, "迁移应成功，输出:\n" + run.output);
+        return run.output;
+    }
+
+    private static Run runRaw(String sourceUrl, String targetUrl, String mode, boolean truncate,
+                              String targetDialect, boolean failOnWarnings) {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         PrintStream out;
         try {
@@ -598,11 +635,23 @@ class MigrationH2Test {
             args.add("--target-dialect");
             args.add(targetDialect);
         }
+        if (failOnWarnings) {
+            args.add("--fail-on-warnings");
+            args.add("true");
+        }
         int code = MigrationMain.run(args.toArray(new String[0]), out, out);
         out.flush();
-        String text = new String(buffer.toByteArray(), StandardCharsets.UTF_8);
-        assertEquals(0, code, "迁移应成功，输出:\n" + text);
-        return text;
+        return new Run(code, new String(buffer.toByteArray(), StandardCharsets.UTF_8));
+    }
+
+    private static final class Run {
+        final int code;
+        final String output;
+
+        Run(int code, String output) {
+            this.code = code;
+            this.output = output;
+        }
     }
 
     private static void exec(Connection c, String sql) throws SQLException {

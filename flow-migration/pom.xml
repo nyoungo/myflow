@@ -6,7 +6,7 @@
 
     <groupId>com.joinsoft</groupId>
     <artifactId>flow-migration</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.1</version>
     <packaging>jar</packaging>
     <name>flow-migration</name>
     <description>Activiti 6 -> flow-approval data migration tool (MySQL / PostgreSQL / HighGo)</description>
@@ -35,6 +35,13 @@
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <version>42.7.3</version>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- 瀚高 HighGo 驱动：jdbc:highgo: 需要 com.highgo.jdbc.Driver -->
+        <dependency>
+            <groupId>com.highgo</groupId>
+            <artifactId>HgdbJdbc</artifactId>
+            <version>6.2.2</version>
             <scope>runtime</scope>
         </dependency>
         <!-- 仅用于把旧 Activiti 设计器 JSON 草稿转换为 BPMN XML，不引入流程引擎运行时 -->

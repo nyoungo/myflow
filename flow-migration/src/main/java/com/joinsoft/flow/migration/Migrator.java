@@ -45,11 +45,13 @@ public final class Migrator implements AutoCloseable {
         }
 
         try {
+            preflightSource();
             if (options.execute() && options.createSchema) {
                 createSchema(targetDialect);
             }
             writer = new Writer(target.connection, !options.execute(), options.batchSize);
             checkTargetTables();
+            checkTargetColumns();
             if (options.execute() && options.truncate) {
                 truncateSelected();
             }
@@ -91,6 +93,7 @@ public final class Migrator implements AutoCloseable {
                 report.info("dry-run 结束：没有写入目标库。确认无误后加 --mode execute 正式执行。");
             } else {
                 validateTargetData();
+                ensureBusinessKeyUnique();
             }
             report.printCounters();
             report.printWarningSummary();
@@ -102,6 +105,8 @@ public final class Migrator implements AutoCloseable {
             } else {
                 rollbackQuietly(target.connection);
             }
+            // 失败时也把已产生的告警落盘，方便定位是哪批数据出的问题
+            report.writeCsv(options.reportPath);
             throw e;
         }
     }
@@ -113,6 +118,100 @@ public final class Migrator implements AutoCloseable {
         if (writer != null) {
             writer.commit();
         }
+    }
+
+    // ------------------------------------------------------------------
+    // 预检
+    // ------------------------------------------------------------------
+
+    /**
+     * 旧库预检：一次性列出 ACT_* 表的检测结果，避免改错 schema 后跑到一半才报错。
+     */
+    private void preflightSource() {
+        String[][] expected = {
+                {"act_re_procdef", "流程定义"},
+                {"act_re_model", "草稿模型"},
+                {"act_hi_procinst", "历史实例"},
+                {"act_hi_taskinst", "历史任务"},
+                {"act_hi_varinst", "历史变量"},
+                {"act_hi_comment", "审批意见"},
+                {"act_ru_task", "运行中任务"},
+                {"act_ru_execution", "运行中执行流"},
+                {"act_ge_bytearray", "部署资源"},
+                {"act_business_data", "业务数据"},
+                {"sys_user", "用户"}
+        };
+        List<String> found = new ArrayList<String>();
+        List<String> missing = new ArrayList<String>();
+        for (String[] item : expected) {
+            String label = item[0] + "(" + item[1] + ")";
+            if (source.table(item[0]) != null) {
+                found.add(label);
+            } else {
+                missing.add(label);
+            }
+        }
+        if (found.isEmpty()) {
+            throw new MigrationException("旧库没有检测到任何 ACT_* 表，请确认 --source-url / --source-schema 指向 Activiti 数据库");
+        }
+        report.info("旧库预检: 已找到 " + found);
+        if (!missing.isEmpty()) {
+            report.info("旧库预检: 未找到 " + missing + "，相关数据会跳过或告警");
+        }
+
+        List<String> required = new ArrayList<String>();
+        if (options.wants("def")) {
+            required.add("act_re_procdef");
+        }
+        if (options.wants("inst")) {
+            required.add("act_hi_procinst");
+        }
+        List<String> absent = new ArrayList<String>();
+        for (String table : required) {
+            if (source.table(table) == null) {
+                absent.add(table);
+            }
+        }
+        if (!absent.isEmpty()) {
+            throw new MigrationException("旧库缺少必需的表: " + absent + "（--tables=" + options.tables + "）");
+        }
+    }
+
+    /** 目标表列预检：用旧版建表脚本建过库时，提前给出缺列清单而不是让 INSERT 报错。 */
+    private void checkTargetColumns() {
+        List<String> missing = new ArrayList<String>();
+        for (String table : selectedTables()) {
+            Db.Table targetTable = target.table(table);
+            if (targetTable == null) {
+                continue;
+            }
+            for (String column : Writer.columns(table)) {
+                if (targetTable.col(column) == null) {
+                    missing.add(table + "." + column);
+                }
+            }
+        }
+        if (!missing.isEmpty()) {
+            throw new MigrationException("目标表缺少列: " + missing
+                    + "；请执行最新版 flow-schema.sql（或先启动一次应用触发 FlowSchemaInitializer）后重试");
+        }
+    }
+
+    private List<String> selectedTables() {
+        List<String> tables = new ArrayList<String>();
+        if (options.wants("def")) {
+            tables.add("flow_def");
+        }
+        if (options.wants("inst")) {
+            tables.add("flow_inst");
+        }
+        if (options.wants("task")) {
+            tables.add("flow_task");
+        }
+        if (options.wants("comment")) {
+            tables.add("flow_comment");
+        }
+        return tables;
     }
 
     // ------------------------------------------------------------------
@@ -141,26 +240,18 @@ public final class Migrator implements AutoCloseable {
 
     private static boolean isAlreadyExists(SQLException e) {
         String message = e.getMessage() == null ? "" : e.getMessage().toLowerCase(Locale.ROOT);
+        // 只匹配「对象已存在」。不能用 "exists" 泛匹配：MySQL/瀚高的
+        // "Table ... doesn't exist" 也含 exists，会把真实错误吞掉
         return message.contains("already exists")
                 || message.contains("duplicate key name")
-                || message.contains("duplicate column")
-                || message.contains("exists");
+                || message.contains("duplicate column name")
+                || message.contains("duplicate index");
     }
 
     private void truncateSelected() {
-        List<String> tables = new ArrayList<String>();
-        if (options.wants("comment")) {
-            tables.add("flow_comment");
-        }
-        if (options.wants("task")) {
-            tables.add("flow_task");
-        }
-        if (options.wants("inst")) {
-            tables.add("flow_inst");
-        }
-        if (options.wants("def")) {
-            tables.add("flow_def");
-        }
+        // 按子表 -> 主表的顺序清空，避免外键/残留孤儿
+        List<String> tables = selectedTables();
+        java.util.Collections.reverse(tables);
         report.info("清空目标表: " + tables);
         writer.clear(tables.toArray(new String[0]));
         if (tables.size() < 4) {
@@ -169,21 +260,8 @@ public final class Migrator implements AutoCloseable {
     }
 
     private void checkTargetTables() {
-        List<String> required = new ArrayList<String>();
-        if (options.wants("def")) {
-            required.add("flow_def");
-        }
-        if (options.wants("inst")) {
-            required.add("flow_inst");
-        }
-        if (options.wants("task")) {
-            required.add("flow_task");
-        }
-        if (options.wants("comment")) {
-            required.add("flow_comment");
-        }
         List<String> missing = new ArrayList<String>();
-        for (String table : required) {
+        for (String table : selectedTables()) {
             if (target.table(table) == null) {
                 missing.add(table);
             }
@@ -283,6 +361,41 @@ public final class Migrator implements AutoCloseable {
         long count = count(sql);
         if (count > 0) {
             report.warn("flow_inst", "", "运行中实例没有活动任务", "共 " + count + " 条，迁移后无法继续审批，请人工处理");
+        }
+    }
+
+    /**
+     * 迁移完成后补建 business_key 唯一索引，与 flow-approval 的 flow-schema.sql 对齐。
+     * 存在重复数据时不建索引，只告警，避免直接卡死后续流程。
+     */
+    private void ensureBusinessKeyUnique() {
+        Db.Table inst = target.table("flow_inst");
+        if (inst == null) {
+            return;
+        }
+        long duplicates = count("SELECT COUNT(*) FROM (SELECT business_key FROM " + inst.name
+                + " WHERE business_key IS NOT NULL AND business_key <> ''"
+                + " GROUP BY business_key HAVING COUNT(*) > 1) dup");
+        if (duplicates > 0) {
+            report.warn("flow_inst", "", "存在重复 business_key，未创建唯一索引",
+                    "共 " + duplicates + " 组；清理后可手工执行 CREATE UNIQUE INDEX uk_flow_inst_business_key"
+                            + " ON flow_inst (business_key)");
+            return;
+        }
+        Statement statement = null;
+        try {
+            statement = target.connection.createStatement();
+            statement.execute("CREATE UNIQUE INDEX uk_flow_inst_business_key ON " + inst.name + " (business_key)");
+            commit(target.connection);
+            report.info("已创建唯一索引 uk_flow_inst_business_key");
+        } catch (SQLException e) {
+            // PostgreSQL/瀚高在语句报错后事务会进入 aborted 状态，回滚后才能继续复用连接
+            rollbackQuietly(target.connection);
+            if (!isAlreadyExists(e)) {
+                report.warn("flow_inst", "", "创建 business_key 唯一索引失败", e.getMessage());
+            }
+        } finally {
+            close(statement);
         }
     }
 

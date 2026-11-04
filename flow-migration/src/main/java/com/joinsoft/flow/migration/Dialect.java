@@ -42,15 +42,74 @@ public enum Dialect {
     }
 
     public List<String> ddlStatements() {
-        String text = readResource(ddlResource);
+        return splitStatements(readResource(ddlResource));
+    }
+
+    /**
+     * 按分号切分建表脚本。
+     *
+     * <p>直接按分号切会被注释或字符串内容里的分号打断，这里先跳过行注释与块注释，
+     * 再只在引号外切分，保证脚本以后加入注释/函数体也不会切错。</p>
+     */
+    static List<String> splitStatements(String text) {
         List<String> statements = new ArrayList<String>();
-        for (String part : text.split(";")) {
-            String sql = part.trim();
-            if (!sql.isEmpty()) {
-                statements.add(sql);
+        StringBuilder current = new StringBuilder();
+        boolean singleQuote = false;
+        boolean doubleQuote = false;
+        int i = 0;
+        while (i < text.length()) {
+            char ch = text.charAt(i);
+            if (!singleQuote && !doubleQuote) {
+                if (ch == '-' && i + 1 < text.length() && text.charAt(i + 1) == '-') {
+                    while (i < text.length() && text.charAt(i) != '\n' && text.charAt(i) != '\r') {
+                        i++;
+                    }
+                    current.append('\n');
+                    continue;
+                }
+                if (ch == '/' && i + 1 < text.length() && text.charAt(i + 1) == '*') {
+                    int end = text.indexOf("*/", i + 2);
+                    i = end < 0 ? text.length() : end + 2;
+                    current.append(' ');
+                    continue;
+                }
             }
+            if (ch == '\'' && !doubleQuote) {
+                // 连续两个单引号是转义，不改变引号状态
+                if (singleQuote && i + 1 < text.length() && text.charAt(i + 1) == '\'') {
+                    current.append("''");
+                    i += 2;
+                    continue;
+                }
+                singleQuote = !singleQuote;
+                current.append(ch);
+                i++;
+                continue;
+            }
+            if (ch == '"' && !singleQuote) {
+                doubleQuote = !doubleQuote;
+                current.append(ch);
+                i++;
+                continue;
+            }
+            if (ch == ';' && !singleQuote && !doubleQuote) {
+                addStatement(statements, current);
+                current.setLength(0);
+                i++;
+                continue;
+            }
+            current.append(ch);
+            i++;
         }
+        addStatement(statements, current);
         return statements;
+    }
+
+    private static void addStatement(List<String> statements, StringBuilder current) {
+        String sql = current.toString().trim();
+        if (!sql.isEmpty()) {
+            statements.add(sql);
+        }
     }
 
     private static String readResource(String name) {

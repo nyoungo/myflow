@@ -25,7 +25,6 @@ public final class InstanceMigrator {
     private static final String STATE_RUNNING = "1";
     private static final String STATE_FINISHED = "2";
     private static final String STATE_TERMINATED = "3";
-    private static final String STATE_REPEALED = "4";
 
     private final Ctx ctx;
     private final Set<String> warnedSerializable = new LinkedHashSet<String>();
@@ -89,6 +88,12 @@ public final class InstanceMigrator {
 
     private Page fetchBusinessPage(Db.Table business, Db.Table procinst, String lastId) {
         if (business == null) {
+            return new Page();
+        }
+        // 缺少关联列时退化为「只读历史实例」，避免拼出 b.null 这类非法 SQL
+        if (business.col("ID_", "ID") == null || business.col("PROC_INST_ID_") == null) {
+            ctx.report.warn("act_business_data", "", "业务表缺少 ID_/PROC_INST_ID_ 列",
+                    "将只迁移 ACT_HI_PROCINST 中的实例，业务标题/扩展字段可能丢失");
             return new Page();
         }
         String sql = businessSelect(business, procinst)
@@ -288,6 +293,7 @@ public final class InstanceMigrator {
                 businessKey = defKey + "." + businessId;
             }
 
+            String tenantId = Text.cut(Text.firstNonEmpty(row.bTenant, row.pTenant), 64);
             Map<String, Object> target = new LinkedHashMap<String, Object>();
             target.put("id", id);
             target.put("proc_inst_id", id);
@@ -304,7 +310,7 @@ public final class InstanceMigrator {
             target.put("title", Text.cut(Text.firstNonEmpty(row.bTitle, stringValue(variables.get("title")),
                     row.pName, businessKey), 500));
             target.put("state", state);
-            target.put("tenant_id", Text.cut(Text.firstNonEmpty(row.bTenant, row.pTenant), 64));
+            target.put("tenant_id", tenantId);
             target.put("ext_id", Text.cut(row.bExt, 100));
             target.put("def_id", Text.cut(defId, 64));
             target.put("def_key", Text.cut(defKey, 100));
@@ -316,6 +322,7 @@ public final class InstanceMigrator {
 
             ctx.writer.write("flow_inst", target);
             ctx.instances.add(id);
+            ctx.instanceTenants.put(id, tenantId);
             written++;
 
             if (STATE_RUNNING.equals(state) && tokens.isEmpty()) {
@@ -335,7 +342,9 @@ public final class InstanceMigrator {
     private String resolveState(InstRow row, Map<String, Object> variables) {
         String state = row.bState == null ? null : row.bState.trim();
         boolean running = STATE_RUNNING.equals(state);
-        boolean ended = STATE_FINISHED.equals(state) || STATE_TERMINATED.equals(state) || STATE_REPEALED.equals(state);
+        // 旧库历史数据里可能残留 4（旧项目曾用 4 表示撤销），新引擎只有 1/2/3，
+        // 因此撤销实例统一落成「已终止」，否则在新系统各列表里不可见
+        boolean ended = STATE_FINISHED.equals(state) || STATE_TERMINATED.equals(state) || "4".equals(state);
         if (running) {
             if (row.pEndTime == null) {
                 return STATE_RUNNING;
@@ -343,13 +352,10 @@ public final class InstanceMigrator {
             // 旧 terminal() 会结束流程却仍把 act_business_data.STATE_ 写成 1，
             // 唯一可靠信号是流程变量 flow 被置为 0
             String byReason = stateFromDeleteReason(row.pDeleteReason);
-            if (STATE_REPEALED.equals(byReason)) {
-                return STATE_REPEALED;
-            }
             return flowZero(variables) ? STATE_TERMINATED : byReason;
         }
         if (ended) {
-            return state;
+            return "4".equals(state) ? STATE_TERMINATED : state;
         }
         if (row.pEndTime == null) {
             return STATE_RUNNING;
@@ -378,8 +384,10 @@ public final class InstanceMigrator {
             return STATE_FINISHED;
         }
         String lower = reason.toLowerCase(Locale.ROOT);
+        // 新引擎的撤销是物理删除实例，没有「已撤销」状态；
+        // 历史撤销实例按已终止迁移，保证在已办/我发起的列表里仍可追溯
         if (reason.contains("撤销") || lower.contains("repeal") || lower.contains("cancel")) {
-            return STATE_REPEALED;
+            return STATE_TERMINATED;
         }
         if (reason.contains("终止") || lower.contains("terminate")) {
             return STATE_TERMINATED;

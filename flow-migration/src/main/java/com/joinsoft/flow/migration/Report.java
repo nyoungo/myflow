@@ -50,6 +50,11 @@ public final class Report {
         return warnings.size();
     }
 
+    /** 告警总数：包含因 --max-warnings 被截断未保留的部分。 */
+    public long totalWarnings() {
+        return warnings.size() + suppressedWarnings;
+    }
+
     public long suppressedWarnings() {
         return suppressedWarnings;
     }
@@ -83,23 +88,47 @@ public final class Report {
             PrintWriter writer = new PrintWriter(Files.newBufferedWriter(file, StandardCharsets.UTF_8));
             try {
                 writer.write('\ufeff');
+                writeSummary(writer);
+                writer.println();
+                writer.println("告警明细");
                 writer.println("表,主键,问题,详情");
                 for (String[] warning : warnings) {
                     writer.println(csv(warning[0]) + "," + csv(warning[1]) + ","
                             + csv(warning[2]) + "," + csv(warning[3]));
                 }
+                if (suppressedWarnings > 0) {
+                    writer.println("截断,," + suppressedWarnings + " 条告警未写入,可调大 --max-warnings");
+                }
             } finally {
                 writer.close();
             }
-            out.println("  告警明细已写入: " + file.toAbsolutePath());
+            out.println("  报告已写入: " + file.toAbsolutePath());
         } catch (IOException e) {
             out.println("  写报告文件失败: " + e.getMessage());
         }
     }
 
+    /** 报告开头的阶段汇总，便于把 CSV 直接当成迁移记录归档。 */
+    private void writeSummary(PrintWriter writer) {
+        writer.println("阶段汇总");
+        writer.println("阶段,读取,写入,跳过");
+        long read = 0;
+        long written = 0;
+        long skipped = 0;
+        for (Map.Entry<String, long[]> entry : counters.entrySet()) {
+            long[] value = entry.getValue();
+            read += value[0];
+            written += value[1];
+            skipped += value[2];
+            writer.println(csv(entry.getKey()) + "," + value[0] + "," + value[1] + "," + value[2]);
+        }
+        writer.println("合计," + read + "," + written + "," + skipped);
+        writer.println("告警数," + totalWarnings() + ",,");
+    }
+
     public void printHeader(Options options, Dialect sourceDialect, Dialect targetDialect) {
         out.println("============================================================");
-        out.println("Activiti 6 -> flow-approval 数据迁移");
+        out.println("Activiti 6 -> flow-approval 数据迁移 v" + MigrationMain.VERSION);
         out.println("时间: " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
         out.println("模式: " + (options.execute() ? "execute（会写入目标库）" : "dry-run（只统计，不写入）"));
         out.println("旧库: " + mask(options.sourceUrl) + "  [" + sourceDialect + "]");
@@ -118,8 +147,9 @@ public final class Report {
             written += entry.getValue()[1];
             skipped += entry.getValue()[2];
         }
-        out.println(String.format("  合计 读取 %d，写入 %d，跳过 %d，告警 %d",
-                read, written, skipped, warnings.size()));
+        out.println(String.format("  合计 读取 %d，写入 %d，跳过 %d，告警 %d%s",
+                read, written, skipped, totalWarnings(),
+                suppressedWarnings > 0 ? "（含截断 " + suppressedWarnings + " 条）" : ""));
     }
 
     private static String mask(String url) {

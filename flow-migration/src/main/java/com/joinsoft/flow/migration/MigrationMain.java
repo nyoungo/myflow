@@ -14,6 +14,8 @@ import java.io.PrintStream;
  */
 public final class MigrationMain {
 
+    public static final String VERSION = "1.1.1";
+
     public static void main(String[] args) {
         int code = run(args, System.out, System.err);
         if (code != 0) {
@@ -30,13 +32,22 @@ public final class MigrationMain {
             printUsage(err);
             return 2;
         }
+        if (options.version) {
+            out.println("flow-migration " + VERSION);
+            return 0;
+        }
         if (options.help) {
             printUsage(out);
             return 0;
         }
         Migrator migrator = new Migrator(options, out);
         try {
-            migrator.run();
+            Report report = migrator.run();
+            if (options.failOnWarnings && report.totalWarnings() > 0) {
+                err.println("迁移完成，但存在 " + report.totalWarnings()
+                        + " 条告警（--fail-on-warnings 已开启，按失败处理）");
+                return 4;
+            }
             return 0;
         } catch (IllegalArgumentException e) {
             err.println("参数错误: " + e.getMessage());
@@ -54,7 +65,7 @@ public final class MigrationMain {
     }
 
     private static void printUsage(PrintStream out) {
-        out.println("Activiti 6 -> flow-approval 数据迁移工具");
+        out.println("Activiti 6 -> flow-approval 数据迁移工具 v" + VERSION);
         out.println();
         out.println("用法:");
         out.println("  java -jar flow-migration.jar --source-url <旧库> --target-url <新库> [参数]");
@@ -86,10 +97,15 @@ public final class MigrationMain {
         out.println("  --batch-size <n>           目标库批量写入大小，默认 200");
         out.println("  --skip-unsupported-instances <bool>");
         out.println("                             运行中实例含子流程/多实例等新引擎不支持的节点时是否跳过，默认 true");
-        out.println("  --report <file.csv>        输出逐行告警明细（UTF-8 BOM，Excel 可直接打开）");
+        out.println("  --report <file.csv>        输出迁移报告（阶段汇总 + 逐行告警，UTF-8 BOM，Excel 可直接打开）");
         out.println("  --max-warnings <n>         内存中最多保留多少条告警，默认 2000");
+        out.println("  --fail-on-warnings <bool>  有告警时以退出码 4 结束，便于 CI/脚本判定，默认 false");
         out.println("  --config <file.properties> 从配置文件读取参数，命令行优先");
         out.println("  -h, --help                 显示帮助");
+        out.println("  --version                  显示版本");
+        out.println();
+        out.println("退出码:");
+        out.println("  0 成功；2 参数错误；3 迁移失败；4 迁移成功但有告警（仅 --fail-on-warnings true）");
         out.println();
         out.println("示例:");
         out.println("  # MySQL -> PostgreSQL 演练（不写入）");
@@ -106,7 +122,9 @@ public final class MigrationMain {
         out.println();
         out.println("注意:");
         out.println("  1. 旧库 ACT_* 表不会被修改或删除，可反复执行本工具。");
-        out.println("  2. 目标 flow_* 表按主键覆盖写入，重复执行结果一致。");
+        out.println("  2. 目标 flow_* 表按主键覆盖写入，重复执行结果一致；按阶段提交，中断后可直接重跑。");
         out.println("  3. 正式切换前请先备份两个库，并先跑一次 dry-run 查看告警。");
+        out.println("  4. 旧的「撤销」实例在新引擎按已终止（state=3）迁移，因为新引擎的撤销是物理删除。");
+        out.println("  5. 执行成功后会尝试补建 business_key 唯一索引；有重复数据时只告警、不建索引。");
     }
 }
